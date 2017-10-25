@@ -1,5 +1,5 @@
 ---
-title: "Data Exploration(Anamoly Detection) of Barley Yield for year 1927-1936"
+title: "Data Exploration(Anomaly Detection) of Barley Yield for year 1927-1936"
 author: "Rahul Raghatate"
 date: "October 13, 2017"
 output: pdf_document
@@ -16,7 +16,7 @@ library(tidyr)
 library(gridExtra)
 ```
 
-# Data Import
+## Data Import
 Lets import the data and have a look at summary of it.
 ```{r,echo = FALSE,message=FALSE,warning=FALSE,error=FALSE,tidy=TRUE,fig.align='center',fig.width=10,fig.height=6}
 data=agridat::minnesota.barley.yield
@@ -57,7 +57,7 @@ ggplot(gen.site, aes(x = yield, y = gen)) + geom_point(size=1.5) + facet_wrap(~ 
 ```
 We can observe that the year:site interaction graph shows the dots to be reasonably spaced out, thus indicating interaction required to be considered.
 
-### Model Selection
+## Model Selection
 As the data consist of outliers and considering interaction also, least squares will be potentially misleading, I choose an outlier-resistant alternative i.e rlm() with bisquare to minimize the impact.
 
 ## Model Implementation
@@ -68,7 +68,7 @@ barley.rlm.df = augment(barley.rlm)
 barley.3132 <- barley.rlm.df[barley.rlm.df$year == 1931 | barley.rlm.df$year == 1932,]
 barley.3132$year = factor(barley.3132$year)
 ```
-Plot to show the site effects.
+## Plot to show the site effects.
 ```{r,echo = FALSE,message=FALSE,warning=FALSE,error=FALSE,tidy=TRUE,fig.align='center',fig.width=10,fig.height=6}
 site.effects = sort(dummy.coef(barley.rlm)$site)
 sites = factor(names(site.effects), levels = names(site.effects))
