@@ -1,0 +1,244 @@
+---
+title: "EDA(S670)-Mini-Project-1-Report"
+author: 'Syam Sundar Herle,Rahul Rahagate,Sidharth,Saheli Saha'
+date: "October 6, 2017"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message=FALSE,echo=FALSE, warning=FALSE, comment=FALSE, warning=FALSE)
+```
+
+
+```{r}
+#Required Libraries
+library(ggplot2)
+library(tseries)
+library(astsa)
+library(dplyr)
+library(magrittr)
+require(gridExtra)
+library(broom)
+library(forecast)
+library(lattice)
+
+
+#Seting up the working directory
+setwd("C:\\Drives\\Box Sync\\EDA Projects\\Small Project 1")
+```
+
+#Solution 1 a)
+
+For this problem we will do the following steps,
+
+* We will read the COP_CH4_Obs_Mod_Bg_Sep2012-Aug2013.csv which gives us the observation of CH4 from September 2012 to August 2013.
+
+```{r Reading the data}
+#Read the csv file
+COPData = read.csv("COP_CH4_Obs_Mod_Bg_Sep2012-Aug2013.csv", header = TRUE)
+```
+
+* We created season column, and we assigned the data as per below categories based on Month values.
+
+    + Months value of 9,10,11 = 'Fall'
+
+    + Months value of 3,4,5 = 'Spring'
+
+    + Months value of 6,7,8 = 'Summer'
+
+    + Months value of 12,1,2 = 'Winter'
+
+```{r}
+#add a column for season
+COPData$Season = 'Winter'
+COPData$Season[COPData$Mn >= 9 & COPData$Mn <= 11] = 'Fall'
+COPData$Season[COPData$Mn >= 3 & COPData$Mn <= 5] = 'Spring'
+COPData$Season[COPData$Mn >= 6 & COPData$Mn <= 8] = 'Summer'
+
+```
+
+* Subseting the data for 16-21 UTC
+    + Hr =[16-21]
+* We replaced the N/A values in the data by the mean of the data at the same Hour. 
+
+```{r echo=FALSE,results=FALSE,include=FALSE}
+#subset data required for 1.1
+COPData11 = COPData[COPData$Hr >= 16 & COPData$Hr <= 21,]
+COPData11<-subset(COPData11, select = c('Yr','Mn','Dy','Hr','Obs','Season'))
+#Missing value imputation using mean for the month
+COPData11=COPData11 %>% group_by(Hr) %>% mutate(Obs = ifelse(is.na(Obs), mean(Obs, na.rm = T), Obs))
+```
+
+Now we have the data required for this problem, the data is formatted as season wise, and month wise. Let us try to create a box plot to visualise the distribution of the data season wise and month wise,\newline
+```{r fig.height = 5, fig.width = 10}
+require(gridExtra)
+q1<-ggplot(COPData11, aes(x = factor(Mn), y = Obs)) + geom_boxplot()+ 
+  labs(x= 'Month')
+q2<-ggplot(COPData11, aes(x = Season, y = Obs)) + geom_boxplot()
+grid.arrange(q1,q2,nrow=2)
+```
+Let us have the summary statistic for the season wise observation of CH4,
+```{r}
+COPData11 %>% group_by(Season) %>% summarise(mean=mean(Obs), sd=sd(Obs))
+```
+From the above plot of distribution of observation month wise we have the following findings,
+
+* The observation of CH4 in the time frame (16-21) for the month of December,January,February is higher than the observation of same in other months
+
+* The Mean of the observation of CH4 for the month of 'March','April',and 'August' is almost same.
+
+Findings from the season-wise distribution,
+
+* All follows non-normal right skewed distribution. It is visible that there are a number of leverage points in each season.
+
+* The observation of CH4 is higher during 'winter' than any other season.
+
+* The mean of Observation of CH4 is simillar for the 'Summer' and 'Spring' period.
+
+* The Variance and Standard deviation of CH4 observation for season-wise is different.
+
+* There are more outliers for 'Fall' and 'Winter' season compared to others. Among the  'Fall' and 'Winter', Winter data has more outliers resulting in high variance.
+
+## Solution 1b)
+```{r fig.height = 7, fig.width = 10}
+#average hourly values to get daily values
+COPData12 = COPData[,c('Yr', 'Mn', 'Dy', 'Hr', 'Obs')]
+COPData12 = aggregate(COPData12, by = list(Date = paste(COPData12$Yr, COPData12$Mn, COPData12$Dy, sep = '-')), FUN = mean)
+COPData12$Date = as.Date(COPData12$Date)
+
+#sorting date-wise
+COPData12=COPData12[order(as.Date(COPData12$Date, format="%Y/%m/%d")),]
+
+#Missing value imputation using mean for the month
+COPData12=COPData12 %>% group_by(Mn) %>% mutate(Obs = ifelse(is.na(Obs), mean(Obs, na.rm = T), Obs))
+
+#time series plot of the data as it is
+d1<-ggplot(COPData12,aes(x = Date, y = Obs)) +geom_point()+geom_line()+
+  scale_x_date('Date') +ggtitle('time-series plot for data')
+
+#Fitting a loess curve to the data to describe the trend and explore the residuals from the loess trend fit.
+#Linear Model
+COPData12.lm =lm(Obs ~ Date, data = COPData12)
+COPData12.lm.df = augment(COPData12.lm)
+
+#Residual plot
+d2<-ggplot(COPData12.lm.df, aes(x=Date, y=.resid)) + geom_point() + geom_line()+
+  geom_smooth() + geom_abline(slope=0, intercept=0)+ggtitle('Residual plot and loess trend  fit for the data')
+grid.arrange(d1,d2,nrow=2)
+```
+There is no particular trend from the loess curve, though there appears that there might be seasonality in the data. There are less oscillation(1cycle) due to only one year data. There are two peaks which look like outliers in the data. Most of the variation is accounted by the residuals concluding that time series model performs very poorly and probably there are other factors that are needed to explain the variation in the given data.
+
+#Solution 2)
+```{r}
+#Data Load
+bu_spring<-read.csv("BU_C2H6_CH4_5min_May-Jun2014.csv",header = TRUE)
+bu_fall_winter<-read.csv("BU_C2H6_CH4_5min_Oct2012-Jan2013.csv",header = TRUE)
+
+#Imputing Missing Values based on month average
+bu_spring=bu_spring %>% group_by(Mon) %>% mutate(CH4 = ifelse(is.na(CH4), mean(CH4, na.rm = T), CH4))
+bu_fall_winter=bu_fall_winter %>% group_by(Mon) %>% mutate(CH4 = ifelse(is.na(CH4), mean(CH4, na.rm = T), CH4))
+bu_spring=bu_spring %>% group_by(Mon) %>% mutate(C2H6 = ifelse(is.na(C2H6), mean(C2H6, na.rm = T), C2H6))
+bu_fall_winter=bu_fall_winter %>% group_by(Mon) %>% mutate(C2H6 = ifelse(is.na(C2H6), mean(C2H6, na.rm = T), C2H6))
+
+#Data column and aggregate based on date
+bu_spring1 = bu_spring[,c('Yr', 'Mon', 'Day', 'Hr','Min', 'CH4','C2H6' )]
+bu_fall_winter1 = bu_fall_winter[,c('Yr', 'Mon', 'Day', 'Hr','Min', 'CH4','C2H6' )]
+
+```
+For the problem of fitting linear fit in Spring and fall-winter observation of CH4,C2H6 we will consider the following data,
+
+* BU C2H6 CH4 5min May-Jun2014.csv, for the Spring season observation of CH4 and C2H6.
+
+* BU C2H6 CH4 5min Oct2012-Jan2013.csv, for the Fall-Winter season observation of CH4 and C2H6.
+
+* The data values which has N/A are replaced by the mean of the data for the Month of the 'N/A' value.
+
+Lets explore scatterplot for both spring and fall-winter of CH4 and C2H6 observations using loess smoothing.
+```{r fig.height = 3, fig.width = 10}
+# Lets plot the scatter plot graphs for loess smoothing.
+p3<-ggplot(bu_spring1, aes(x = CH4, y = C2H6)) + geom_point()+geom_smooth(method = 'loess')+ggtitle('Spring-Loess Fit')
+p4<-ggplot(bu_fall_winter1, aes(x = CH4, y = C2H6)) + geom_point()+geom_smooth(method = 'loess')+ggtitle('Fall-Winter-Loess Fit')
+grid.arrange(p3, p4,ncol=2)
+```
+From the above plot we get to know the following details,
+
+* Although it seems Linear Model may fits very well for Fall-Winter, there are too many points which clearly don't fit, maybe outliers. For Spring outliers are weighing too much and we can clearly see the curve.
+
+* They cannot be simply removed as we don't know about their correctness/validity.
+
+```{r fig.height = 3, fig.width = 10}
+#Linear Models
+bu_spring1.lm = lm(C2H6~CH4,data=bu_spring1)
+bu_fall_winter1.lm = lm(C2H6~CH4,data=bu_fall_winter1)
+
+library(broom)
+#spring 
+bu_spring1.lm.df = augment(bu_spring1.lm)
+#fall-winter   
+bu_fall_winter1.lm.df = augment(bu_fall_winter1.lm)
+
+#Plots for residuals vs explanatory variable CH4
+#We plot the residuals against the explanatory variable, then add a loess curve. 
+#If the confdence band contains the line y = 0, then maybe the model is ftting well.
+
+p1 <- ggplot(bu_spring1.lm.df, aes(x = CH4, y = .resid)) + geom_point() +
+  geom_abline(slope = 0, intercept = 0)+geom_smooth(method = 'loess')+ggtitle('Spring::Residuals vs CH4')
+p2 <- ggplot(bu_fall_winter1.lm.df, aes(x = CH4, y = .resid)) + geom_point() +
+  geom_abline(slope = 0, intercept = 0)+geom_smooth(method = 'loess')+ggtitle('Fall_winter::Residuals vs CH4')
+grid.arrange(p1,p2,ncol=2)
+```
+The following are the observation from the above plot,
+
+* There is clear curve in the residuals for spring and linear model is not good fit,whereas for fall-winter data, the linear model may fit well if the outlier are taken care of. 
+
+Lets remove the outlier,
+```{r fig.height = 5, fig.width = 10}
+bu_spring1$residuals = bu_spring1.lm$residuals
+bu_spring1 = bu_spring1[order(abs(bu_spring1$residuals),decreasing=TRUE),]
+rem = round(0.05*nrow(bu_spring1))
+bu_spring1.1 = bu_spring1[-c(1:rem),]
+
+bu_fall_winter1$residuals = bu_fall_winter1.lm$residuals
+bu_fall_winter1 = bu_fall_winter1[order(abs(bu_fall_winter1$residuals),decreasing=TRUE),]
+rem = round(0.05*nrow(bu_fall_winter1))
+bu_fall_winter1.1 = bu_fall_winter1[-c(1:rem),]
+
+#New Linear Models
+bu_spring1.lm = lm(C2H6~CH4,data=bu_spring1.1)
+bu_fall_winter1.lm = lm(C2H6~CH4,data=bu_fall_winter1.1)
+
+library(broom)
+#spring 
+bu_spring1.lm.df = augment(bu_spring1.lm)
+#fall-winter   
+bu_fall_winter1.lm.df = augment(bu_fall_winter1.lm)
+```
+In both datasets we removed the extreme points(outliers) as they were very stronlgy affecting the loess curve.
+```{r fig.height = 5, fig.width = 10}
+p1<-ggplot(bu_spring1.1, aes(x = CH4, y = C2H6)) + geom_point()+geom_smooth(method = 'loess')+ggtitle('Spring-Loess Fit')
+p2<-ggplot(bu_fall_winter1.1, aes(x = CH4, y = C2H6)) + geom_point()+geom_smooth(method = 'loess')+ggtitle('Fall-Winter-Loess Fit')
+
+#checking if residuals are normal
+p3<-ggplot(data=data.frame("residuals"=bu_spring1.lm$residuals),aes(sample=residuals))+stat_qq()+ggtitle("Spring")+theme(plot.title=element_text(hjust=0.5))
+p4<-ggplot(data=data.frame("residuals"=bu_fall_winter1.lm$residuals),aes(sample=residuals))+stat_qq()+ggtitle("Fall-Winter")+theme(plot.title=element_text(hjust=0.5))
+
+grid.arrange(p1,p2,p3,p4,ncol=2)
+```
+The scatterplot for new data and qq_normal plots for checking normality of residuals shows clear linear-fit for the Fall-Winter Data compared to little curve in Spring Data and qq-plots of the residuals in both the cases reasonably follow a normal distribution though not as perfect. Also we do not need any variable transformations.
+
+Consider the residual vs fitted plots shown below,
+In case of fall-winter, fiited value dispersion is higher against residuals and indicates better explanation of variance  by CH4 compared to Spring.
+```{r fig.height = 5, fig.width = 10}
+p3 <- ggplot(bu_spring1.lm.df, aes(x = .fitted, y = sqrt(abs(.resid)))) + geom_point() +
+  geom_smooth()+ggtitle('Spring::Residuals vs Fitted')
+
+p4 <- ggplot(bu_fall_winter1.lm.df, aes(x = .fitted, y = sqrt(abs(.resid)))) + geom_point() +geom_smooth()+ggtitle('Fall_winter::Residuals vs Fitted')
+grid.arrange(p3, p4, ncol=2)
+```
+
+```{r fig.height = 10, fig.width = 10}
+r1<-rfs(lm(C2H6 ~ CH4, data = bu_spring1.1), aspect = 1,main='Spring')
+r2<-rfs(lm(C2H6 ~ CH4, data = bu_fall_winter1.1), aspect = 1,main='Fall_Winter')
+grid.arrange(r1,r2,nrow=2)
+```
+Above plots indicates that in the case of fall-winter data the linear fit seems to be better. Model for fall-winter seems to be a very tight fit. The model for spring does not show as much variation explanation as the winter model. But Still the above models are build based on assumption of large number of outlier which requires to be verified from authors of paper.
