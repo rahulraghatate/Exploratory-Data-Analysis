@@ -1,0 +1,128 @@
+---
+title: "Multinomial Regression for Student Program Choice Prediction"
+author: "Rahul Raghatate [rraghata@iu.edu]"
+date: "October 26, 2017"
+output: pdf_document
+---
+
+
+Students entering high school can make program choices among general program, vocational program and academic program.
+
+So, to predict the program type , 
+
+Lets try to fit multinomial logistic regression for their choice of program with respective to other categorical and ordinal variables 
+
+Data: https://stats.idre.ucla.edu/stat/data/hsbdemo.dta
+
+```{r include=FALSE}
+knitr::opts_chunk$set(message=FALSE,warning=FALSE,error=FALSE,tidy=TRUE,fig.align='center',fig.width=10,fig.height=6)
+#Libraries required
+library(nnet)
+library(reshape2)
+library(ggplot2)
+library(broom)
+library(tidyr)
+library(GGally)
+library(gridExtra)
+library(foreign)
+library(VGAM)
+library(MASS)
+library(arm)
+library(devtools)
+library(ggbiplot)
+```
+## Data Import
+Lets import the data and have a look at summary of it.
+```{r}
+#library(rio)
+hsb_data = read.dta("hsbdemo.dta")
+#Required predictors and dependent variable
+head(hsb_data[,c(3,7,5)])
+summary(hsb_data[,c(3,7,5)])
+# baseline level of 'prog' dependent variable
+hsb_data$prog_l <- relevel(hsb_data$prog, ref = "academic")
+```
+## Exploring bivariate relation counts
+```{r}
+# ses ~ prog_l
+with(hsb_data, table(ses, prog_l))
+# write ~ prog_l
+with(hsb_data, do.call(rbind, tapply(write, prog_l, function(x) c(M = mean(x), SD = sd(x)))))
+```
+## Applying Multinomial Logistic Regression Model
+```{r}
+#Multinomial Regression
+model <- multinom(prog_l ~ ses + write, data = hsb_data)
+```
+```{r echo=FALSE}
+summary(model)
+# Store coefficients
+coefs<-coef(model)
+#transforming for direct interpretation
+coefs<-(exp(coefs)-1)*100
+#Displaying Coefficients
+coefs
+```
+First row compares prog = "general" to baseline prog = "academic" . Second row compares prog = "vocation" to baseline prog = "academic".
+
+Interpretations for the General vs. Academic model:\
+
+$\ln(\frac{P(prog="general")}{P(prog="academic")})=b_{10}+b_11*(ses=2)+b_{12}*(ses=3)+b_{13}*write$ \
+Interpretations for the Vocational vs. Academic model:\
+
+$\ln(\frac{P(prog="vocation")}{P(prog="academic")})=b_{20}+b211*(ses=2)+b_{12}*(ses=3)+b_{23}*write$
+
+## Plot the fitted values against writing score and social economic status
+```{r}
+model.df <- data.frame(ses=hsb_data$ses, write=hsb_data$write)
+model.df.prob <- cbind(model.df, fitted.values(model))
+#dataframe for ggplot
+pred_prob.ggplot <- melt(model.df.prob,id.vars =
+                          c("ses","write"),value.name = "probability")
+## plot of fitted probabilities facet over program type
+ggplot(pred_prob.ggplot, aes(x = write, y = probability, colour = ses))+
+  geom_line() +
+  facet_grid(variable ~ ., scales = "free")+
+  ggtitle(" variation in probability for each outcome categories")+
+  theme(plot.title = element_text(size = 10, face = "bold"))
+```
+## Based on the models defined, for "ses=middle and write=54", making a prediction for prog
+```{r}
+data <- data.frame(ses = "middle", write = 54)
+cat("\nFor ses=middle and write=54, the predicted probabilities for prog_type are:\n",predict(model,newdata=data,"probs"))
+probs<-predict(model,newdata=data,"probs")
+#Calculating required ratios
+
+vocation_over_academic=probs[3]/probs[1]
+
+general_over_academic=probs[2]/probs[1]
+
+cat("\n\nProbability of choosing each outcome category over the baseline category are \n")
+vocation_over_academic
+general_over_academic
+```
+## Proportional odds logistic regression
+Lets treat prog as an ordered categorical variable and fit a proportional odds logistic regression with the same predictors ses and write.
+```{r}
+#Model
+hsb_data.polr =polr(factor(prog) ~ ses+write,data =hsb_data)
+display(hsb_data.polr)
+probs<-predict(hsb_data.polr,data.frame(ses='middle',write=54),type ="probs")
+cat("\nProbability for each outcome category.\n")
+probs
+```
+
+### Therefore, prediction for prog given ses=middle and write=54 is "academic".
+
+We also have their reading, math, science and standardized test score for social studies in the data set ("read", "math", "science" and "socst").
+
+##  PCA for above variables and "write" to explore first two principal components
+```{r}
+pca_cols<-c('read','math','science','socst','write')
+pca_data<-hsb_data[pca_cols]
+data.pca =prcomp(pca_data,scale.=TRUE)
+data.pca
+ggbiplot(data.pca, obs.scale = 1, groups = hsb_data$prog)+
+  ggtitle("Biplot for first two principal components")+
+  theme(plot.title = element_text(size = 10, face = "bold"))
+```
